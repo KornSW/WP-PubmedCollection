@@ -1,0 +1,200 @@
+name: Materialize and publish WordPress plugin release
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wordpress-release-master
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message, 'VERSIONING') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout complete repository history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: master
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Configure Git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Capture triggering commit subject
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          SUBJECT="$(git log -1 --pretty=%s)"
+          echo "subject=$SUBJECT" >> "$GITHUB_OUTPUT"
+
+      - name: Materialize plugin update support and build release
+        id: build
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          RESULT="$(python .kvu/release.py)"
+          echo "$RESULT"
+
+          VERSION="$(python -c 'import json,sys; print(json.loads(sys.argv[1])["version"])' "$RESULT")"
+          TAG="$(python -c 'import json,sys; print(json.loads(sys.argv[1])["tag"])' "$RESULT")"
+          NOTES="$(python -c 'import json,sys; print(json.loads(sys.argv[1])["notes"])' "$RESULT")"
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "notes=$NOTES" >> "$GITHUB_OUTPUT"
+
+      - name: Validate generated state
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -f doc/changelog.md
+          test -f doc/versioninfo.json
+          test -f dist/release-result.json
+
+          python -m json.tool doc/versioninfo.json >/dev/null
+          python -m json.tool dist/release-result.json >/dev/null
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import re
+          import zipfile
+
+          root = Path(".")
+          result = json.loads((root / "dist/release-result.json").read_text(encoding="utf-8"))
+          version = result["version"]
+          plugins = result.get("plugins", [])
+          assets = result.get("assets", [])
+
+          if not plugins:
+              raise SystemExit("release-result.json contains no plugins.")
+          if len(assets) != len(plugins):
+              raise SystemExit("Asset count does not match plugin count.")
+
+          seen_slugs = set()
+          for plugin in plugins:
+              entry = root / plugin["entry"]
+              metadata = root / plugin["update_metadata"]
+              prefix_file = root / plugin["updater_prefix"]
+              asset = root / plugin["asset"]
+              slug = plugin["slug"]
+
+              if slug in seen_slugs:
+                  raise SystemExit(f"Duplicate plugin slug: {slug}")
+              seen_slugs.add(slug)
+
+              for path in (entry, metadata, prefix_file, asset):
+                  if not path.is_file():
+                      raise SystemExit(f"Expected generated file is missing: {path}")
+
+              data = json.loads(metadata.read_text(encoding="utf-8"))
+              if data.get("version") != version:
+                  raise SystemExit(f"Wrong version in {metadata}: {data.get('version')} != {version}")
+
+              entry_text = entry.read_text(encoding="utf-8")
+              expected_uri = (
+                  f"https://raw.githubusercontent.com/{__import__('os').environ['GITHUB_REPOSITORY']}"
+                  f"/master/{plugin['update_metadata']}"
+              )
+
+              expected_homepage = f"https://github.com/{__import__('os').environ['GITHUB_REPOSITORY']}"
+
+              if not re.search(
+                  rf"(?mi)^\s*(?:\*\s*)?Version:\s*{re.escape(version)}\s*$",
+                  entry_text,
+              ):
+                  raise SystemExit(f"Version header not materialized in {entry}")
+              if not re.search(
+                  rf"(?mi)^\s*(?:\*\s*)?Plugin URI:\s*{re.escape(expected_homepage)}\s*$",
+                  entry_text,
+              ):
+                  raise SystemExit(f"Plugin URI not materialized in {entry}")
+              if not re.search(
+                  rf"(?mi)^\s*(?:\*\s*)?Update URI:\s*{re.escape(expected_uri)}\s*$",
+                  entry_text,
+              ):
+                  raise SystemExit(f"Update URI not materialized in {entry}")
+              if not re.search(r"ksw[a-z0-9]+_bootstrap\(\s*__FILE__\s*\);", entry_text):
+                  raise SystemExit(f"Personalized updater bootstrap missing in {entry}")
+
+              with zipfile.ZipFile(asset, "r") as archive:
+                  names = archive.namelist()
+                  if not names:
+                      raise SystemExit(f"ZIP is empty: {asset}")
+                  if any(not name.startswith(slug + "/") for name in names):
+                      raise SystemExit(f"ZIP has an invalid top-level directory: {asset}")
+
+          if (root / "doc/update.json").exists():
+              raise SystemExit("Legacy doc/update.json must not remain after migration.")
+          if (root / "doc/updater-prefix.txt").exists():
+              raise SystemExit("Legacy doc/updater-prefix.txt must not remain after migration.")
+
+          print(f"Validated {len(plugins)} plugin artifact(s) for version {version}.")
+          PY
+
+      - name: Commit materialized repository state locally
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "No generated changes to commit."
+            exit 1
+          fi
+
+          git commit -m "${{ steps.source.outputs.subject }} -> VERSIONING [skip ci]"
+          git tag -a "${{ steps.build.outputs.tag }}" -m "Release ${{ steps.build.outputs.version }}"
+
+      # Release assets are made available BEFORE master exposes the new *.update.json files.
+      - name: Push release tag first
+        shell: bash
+        run: |
+          set -euo pipefail
+          git push origin "${{ steps.build.outputs.tag }}"
+
+      - name: Publish GitHub Release with custom WordPress ZIPs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mapfile -t ASSETS < <(
+            python -c 'import json; print("\n".join(json.load(open("dist/release-result.json", encoding="utf-8"))["assets"]))'
+          )
+
+          if [ "${#ASSETS[@]}" -eq 0 ]; then
+            echo "No release assets found."
+            exit 1
+          fi
+
+          gh release create "${{ steps.build.outputs.tag }}" \
+            "${ASSETS[@]}" \
+            --verify-tag \
+            --title "${{ steps.build.outputs.tag }}" \
+            --notes-file "${{ steps.build.outputs.notes }}"
+
+      - name: Expose generated metadata on master last
+        shell: bash
+        run: |
+          set -euo pipefail
+          git push origin HEAD:master
