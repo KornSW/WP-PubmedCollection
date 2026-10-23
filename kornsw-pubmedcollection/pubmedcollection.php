@@ -1,11 +1,21 @@
 <?php
 
-/*
-  Plugin Name: PubMed-Collection
-  Description: Includes PubMed Shortcode: [include_pubmed collection="64421242"]
-  Author: KornSW
-  Version: 1.0.2 / 28.08.2024
+/**
+ * Plugin Name: PubMed-Collection
+ * Plugin URI: https://github.com/KornSW/WP-PubmedCollection
+ * Description: Includes PubMed Shortcode: [include_pubmed collection="64421242"]
+ * Version: 1.0.2
+ * Author: KornSW
+ * Requires at least: 6.0
+ * Requires PHP: 7.4
+ * License: GPL-3.0
  */
+
+declare(strict_types=1);
+
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
 
   add_shortcode('include_pubmed', 'include_pubmed_shortcode');
 
