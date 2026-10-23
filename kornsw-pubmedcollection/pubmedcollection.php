@@ -2,9 +2,10 @@
 
 /**
  * Plugin Name: PubMed-Collection
+ * Update URI: https://raw.githubusercontent.com/KornSW/WP-PubmedCollection/master/doc/kornsw-pubmedcollection.update.json
  * Plugin URI: https://github.com/KornSW/WP-PubmedCollection
  * Description: Includes PubMed Shortcode: [include_pubmed collection="64421242"]
- * Version: 1.0.2
+ * Version: 1.0.3
  * Author: KornSW
  * Requires at least: 6.0
  * Requires PHP: 7.4
@@ -17,7 +18,14 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-  add_shortcode('include_pubmed', 'include_pubmed_shortcode');
+  
+/*************** SELF-UPDATE ***************/
+define( 'KSWPUBMEDCOLLEC9EBD_SELF_UPDATE_DIAGNOSTICS', false );
+require_once __DIR__ . '/self-update.php';
+kswpubmedcollec9ebd_bootstrap( __FILE__ );
+/*******************************************/
+
+add_shortcode('include_pubmed', 'include_pubmed_shortcode');
 
   function include_pubmed_shortcode($atts) {
   

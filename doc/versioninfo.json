@@ -1,0 +1,13 @@
+{
+  "currentVersionWithSuffix": "1.0.3",
+  "releaseType": "",
+  "currentVersion": "1.0.3",
+  "currentMajor": 1,
+  "currentMinor": 0,
+  "currentFix": 3,
+  "previousVersion": "1.0.2",
+  "changeGrade": "fix",
+  "versionTimeInfo": "05:17:56",
+  "versionDateInfo": "2026-10-23",
+  "versionNotes": "- moved **MVP** from internal Repo to here...\n"
+}

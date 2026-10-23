@@ -1,0 +1,14 @@
+{
+  "name": "PubMed-Collection",
+  "version": "1.0.3",
+  "author": "KornSW",
+  "homepage": "https://github.com/KornSW/WP-PubmedCollection",
+  "download_url": "https://github.com/KornSW/WP-PubmedCollection/releases/download/v1.0.3/kornsw-pubmedcollection.zip",
+  "requires": "6.0",
+  "requires_php": "7.4",
+  "tested": "",
+  "sections": {
+    "description": "Includes PubMed Shortcode: [include_pubmed collection=\"64421242\"]",
+    "changelog": "<h4>Version 1.0.3</h4><ul><li>moved **MVP** from internal Repo to here...</li></ul>"
+  }
+}
