@@ -1,14 +1,14 @@
 {
   "name": "PubMed-Collection",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "author": "KornSW",
   "homepage": "https://github.com/KornSW/WP-PubmedCollection",
-  "download_url": "https://github.com/KornSW/WP-PubmedCollection/releases/download/v1.3.0/kornsw-pubmedcollection.zip",
+  "download_url": "https://github.com/KornSW/WP-PubmedCollection/releases/download/v1.3.1/kornsw-pubmedcollection.zip",
   "requires": "6.0",
   "requires_php": "7.4",
   "tested": "",
   "sections": {
     "description": "Includes PubMed publication lists via the official NCBI E-utilities API (cached, with admin alarm mail). Collections are managed under \"Beiträge > PubMed (KornSW)\": [include_pubmed collection=\"64421242\"]",
-    "changelog": "<h4>Version 1.3.0</h4><ul><li>**New Feature:** diagnostics page (&quot;Diagnose &amp; Protokoll&quot;): environment overview, on-demand connection tests to NCBI (DNS, TCP per address, HTTPS via WordPress and via cURL forced to IPv4 / IPv6 with verbose log, comparison targets, automatic assessment), test mail, and a log of the latest 50 refresh attempts. Optional setting &quot;Nur IPv4&quot; as workaround for servers with a broken IPv6 route. Error messages now include the failing chunk and the elapsed time.</li></ul>"
+    "changelog": "<h4>Version 1.3.1</h4><ul><li>Merge branch &#x27;master&#x27; of https://github.com/KornSW/WP-PubmedCollection</li><li>optimierung api aufruf</li></ul>"
   }
 }
