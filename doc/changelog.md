@@ -2,8 +2,13 @@
 
 ## Upcoming Changes
 
- - **Bug Fix:** loading failed with a timeout (and HTTP 500 from NCBI) because consortium papers carry thousands of authors: summaries are now loaded in chunks of 20 with retry, long author lists are shortened (first 20, the authors of the search filter, last author), and page views never wait for PubMed anymore (refresh runs in the background via WP-Cron).
+*(none)*
+
+## v 1.2.0
+released **2026-11-10**, including:
  - **New Feature:** the cache duration is configurable in the admin page (hours, default 8).
+ - **Bug Fix:** loading failed with a timeout (and HTTP 500 from NCBI) because consortium papers carry thousands of authors: summaries are now loaded in chunks of 20 with retry, long author lists are shortened (first 20, the authors of the search filter, last author), and page views never wait for PubMed anymore (refresh runs in the background via WP-Cron).
+
 
 ## v 1.1.0
 released **2026-11-10**, including:
