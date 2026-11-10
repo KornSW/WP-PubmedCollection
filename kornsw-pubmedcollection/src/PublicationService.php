@@ -191,6 +191,7 @@ final class PublicationService {
 
       $alarmWasSent = (int) $entry['alarmSentAt'] > 0;
       $entry['publications'] = $publications;
+      $entry['searchInfo'] = $this->client->getLastSearchInfo();
       $entry['fetchedAt'] = $now;
       $entry['failingSince'] = 0;
       $entry['lastError'] = '';

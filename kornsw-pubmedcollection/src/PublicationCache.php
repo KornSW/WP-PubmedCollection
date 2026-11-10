@@ -46,7 +46,8 @@ final class PublicationCache {
       'lastAttemptAt' => 0,
       'failingSince' => 0,
       'lastError' => '',
-      'alarmSentAt' => 0
+      'alarmSentAt' => 0,
+      'searchInfo' => ['totalCount' => 0, 'translation' => '', 'warnings' => []]
     ];
   }
 

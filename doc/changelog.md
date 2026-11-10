@@ -2,7 +2,7 @@
 
 ## Upcoming Changes
 
-*(none)*
+ - **New Feature:** the hit list in the admin page shows how PubMed interpreted the search filter (query translation, total hit count, warnings about ignored phrases or unknown fields), to find out why e.g. a `NOT` does not take effect.
 
 ## v 1.3.0
 released **2026-11-10**, including:

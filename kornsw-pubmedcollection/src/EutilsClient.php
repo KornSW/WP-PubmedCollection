@@ -40,8 +40,20 @@ final class EutilsClient {
   /** @var array<string, string> PMID => error message of the last fetchSummaries() call */
   private array $skippedPmids = [];
 
+  /** @var array{totalCount: int, translation: string, warnings: string[]} */
+  private array $lastSearchInfo = ['totalCount' => 0, 'translation' => '', 'warnings' => []];
+
   public function __construct(Settings $settings) {
     $this->settings = $settings;
+  }
+
+  /**
+   * How PubMed interpreted the filter of the last searchPmids() call (to debug filters that do not work as intended).
+   *
+   * @return array{totalCount: int, translation: string, warnings: string[]}
+   */
+  public function getLastSearchInfo(): array {
+    return $this->lastSearchInfo;
   }
 
   /**
@@ -72,7 +84,46 @@ final class EutilsClient {
       throw new RuntimeException('esearch: Antwort enthält keine "idlist".');
     }
 
+    $this->lastSearchInfo = [
+      'totalCount' => (int) ($searchResult['count'] ?? 0),
+      'translation' => (string) ($searchResult['querytranslation'] ?? ''),
+      'warnings' => $this->collectSearchWarnings($searchResult)
+    ];
+
     return array_map('strval', $searchResult['idlist']);
+  }
+
+  /**
+   * PubMed silently ignores or reinterprets parts of a filter; it reports that in warninglist / errorlist.
+   *
+   * @param array<string, mixed> $searchResult
+   * @return string[]
+   */
+  private function collectSearchWarnings(array $searchResult): array {
+    $labels = [
+      'phrasesignored' => 'Ignoriert',
+      'quotedphrasesnotfound' => 'Phrase nicht gefunden',
+      'outputmessages' => 'Hinweis',
+      'phrasesnotfound' => 'Nicht gefunden',
+      'fieldsnotfound' => 'Unbekanntes Feld'
+    ];
+    $warnings = [];
+    foreach (['warninglist', 'errorlist'] as $listName) {
+      if (!isset($searchResult[$listName]) || !is_array($searchResult[$listName])) {
+        continue;
+      }
+      foreach ($searchResult[$listName] as $kind => $values) {
+        if (!is_array($values) || count($values) === 0) {
+          continue;
+        }
+        $label = (string) $kind;
+        if (isset($labels[$kind])) {
+          $label = $labels[$kind];
+        }
+        $warnings[] = $label . ': ' . implode(', ', array_map('strval', $values));
+      }
+    }
+    return $warnings;
   }
 
   /**

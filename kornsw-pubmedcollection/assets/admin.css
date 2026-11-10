@@ -105,3 +105,22 @@
 .kornsw-pmc-diagnostics tr.status-error td:first-child {
   color: #d63638;
 }
+
+/* How PubMed interpreted the search filter */
+.kornsw-pmc-searchinfo {
+  margin: 8px 0 12px;
+  padding: 6px 10px;
+  border-left: 4px solid #72aee6;
+  background: #fff;
+}
+
+.kornsw-pmc-searchinfo p {
+  margin: 4px 0;
+}
+
+.kornsw-pmc-searchinfo pre {
+  margin: 4px 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 11px;
+}

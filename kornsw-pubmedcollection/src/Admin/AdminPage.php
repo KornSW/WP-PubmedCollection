@@ -492,6 +492,7 @@ final class AdminPage {
         - davon <span id="kornsw-pmc-excluded-count"><?php echo esc_html((string) count(array_intersect(array_column($entry['publications'], 'pmid'), $collection['excludedPmids']))); ?></span> ausgeschlossen.
       <?php } ?>
     </p>
+    <?php $this->renderSearchInfo($entry, (int) $collection['maxResults']); ?>
     <?php if (count($entry['publications']) === 0) { ?>
       <p>Keine Treffer.</p>
       <?php return; ?>
@@ -531,6 +532,35 @@ final class AdminPage {
     <p class="submit">
       <button type="submit" name="submit_action" value="save" class="button button-primary">Speichern</button>
     </p>
+    <?php
+  }
+
+  /**
+   * Shows how PubMed interpreted the filter, e.g. to see why a NOT does not take effect.
+   *
+   * @param array<string, mixed> $entry
+   */
+  private function renderSearchInfo(array $entry, int $maxResults): void {
+    $searchInfo = $entry['searchInfo'] ?? [];
+    if (!is_array($searchInfo) || (string) ($searchInfo['translation'] ?? '') === '') {
+      return;
+    }
+    $totalCount = (int) ($searchInfo['totalCount'] ?? 0);
+    $warnings = [];
+    if (isset($searchInfo['warnings']) && is_array($searchInfo['warnings'])) {
+      $warnings = $searchInfo['warnings'];
+    }
+    ?>
+    <div class="kornsw-pmc-searchinfo">
+      <p>
+        <strong>So hat PubMed den Filter verstanden</strong> (<?php echo esc_html((string) $totalCount); ?> Treffer insgesamt<?php if ($totalCount > $maxResults) { ?>, geladen werden die neuesten <?php echo esc_html((string) $maxResults); ?><?php } ?>):
+      </p>
+      <pre><?php echo esc_html((string) $searchInfo['translation']); ?></pre>
+      <?php foreach ($warnings as $warning) { ?>
+        <p class="kornsw-pmc-error">&#9888; PubMed meldet: <?php echo esc_html((string) $warning); ?></p>
+      <?php } ?>
+      <p class="description">Verknüpfungen müssen <code>AND</code> / <code>OR</code> / <code>NOT</code> heißen (komplett groß) - gemischte Schreibweisen wie "Not" behandelt PubMed als Suchwort und verknüpft sie mit AND.</p>
+    </div>
     <?php
   }
 
