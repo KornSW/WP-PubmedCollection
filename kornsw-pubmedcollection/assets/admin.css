@@ -1,0 +1,83 @@
+/* Admin page "Beiträge > PubMed (KornSW)" */
+
+.kornsw-pmc-error {
+  color: #d63638;
+}
+
+.kornsw-pmc-legend {
+  margin-top: 8px;
+}
+
+.kornsw-pmc-legend summary {
+  cursor: pointer;
+  color: #2271b1;
+}
+
+.kornsw-pmc-legend table td {
+  padding: 1px 12px 1px 0;
+  vertical-align: top;
+}
+
+/* Hit list: as compact as possible */
+.kornsw-pmc-hits {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.kornsw-pmc-hits th,
+.kornsw-pmc-hits td {
+  padding: 1px 4px;
+  border-bottom: 1px solid #e2e4e7;
+  text-align: left;
+  vertical-align: top;
+}
+
+.kornsw-pmc-hits th {
+  font-weight: 600;
+  background: #f6f7f7;
+}
+
+.kornsw-pmc-hits a {
+  text-decoration: none;
+}
+
+.kornsw-pmc-hits .col-exclude {
+  width: 1%;
+  text-align: center;
+}
+
+.kornsw-pmc-hits .col-exclude input {
+  margin: 0;
+  width: 12px;
+  height: 12px;
+  min-width: 0;
+}
+
+.kornsw-pmc-hits .col-exclude input:checked::before {
+  width: 14px;
+  height: 14px;
+  margin: -2px 0 0 -2px;
+}
+
+.kornsw-pmc-hits .authors,
+.kornsw-pmc-hits .citation {
+  color: #50575e;
+}
+
+.kornsw-pmc-hits .citation {
+  white-space: nowrap;
+}
+
+.kornsw-pmc-hits tr.is-excluded td:not(.col-exclude) {
+  opacity: 0.4;
+  text-decoration: line-through;
+}
+
+.kornsw-pmc-hits mark {
+  background: #ff0;
+  color: inherit;
+  padding: 0;
+}
