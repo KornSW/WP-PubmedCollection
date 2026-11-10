@@ -22,12 +22,23 @@ final class EutilsClient {
 
   private const TIMEOUT_SECONDS = 30;
 
-  /** esummary needs ~5 s for 20 ids when consortium papers (thousands of authors) are among them. */
-  private const SUMMARY_CHUNK_SIZE = 20;
+  /**
+   * Start size of an esummary chunk. Several consortium papers (thousands of authors) in one chunk can exceed
+   * the ~20 s limit of the NCBI gateway (HTTP 500 "error forwarding request"); such chunks are split adaptively.
+   */
+  private const SUMMARY_CHUNK_SIZE = 10;
+
+  /** Upper bound of transient failures per refresh, so a broken API does not cause hundreds of split requests. */
+  private const MAX_TRANSIENT_FAILURES = 12;
 
   private const MAX_LISTED_AUTHORS = 20;
 
   private Settings $settings;
+
+  private int $transientFailureCount = 0;
+
+  /** @var array<string, string> PMID => error message of the last fetchSummaries() call */
+  private array $skippedPmids = [];
 
   public function __construct(Settings $settings) {
     $this->settings = $settings;
@@ -67,38 +78,70 @@ final class EutilsClient {
   /**
    * Loads the summaries (title, journal, date, authors) of the given PMIDs in small chunks: consortium papers
    * carry thousands of authors (up to ~300 KB each), so large requests run into NCBI timeouts / HTTP 500.
+   * A chunk that fails transiently is split in halves down to single PMIDs; a single PMID that still fails
+   * is skipped (see getSkippedPmids()) instead of failing the whole list.
    *
    * @param string[] $pmids
    * @param string[] $preferredAuthorNames authors (e.g. from the search filter) that are kept when shortening author lists
    * @return array<int, array{pmid: string, title: string, source: string, pubDate: string, sortPubDate: string, authors: string[], authorCount: int}>
-   * @throws RuntimeException if the API is not reachable or answers with an error.
+   * @throws RuntimeException if the API is not reachable, answers with an error or fails too often.
    */
   public function fetchSummaries(array $pmids, array $preferredAuthorNames): array {
+    $this->transientFailureCount = 0;
+    $this->skippedPmids = [];
+
     $publications = [];
     $chunks = array_chunk($pmids, self::SUMMARY_CHUNK_SIZE);
     foreach ($chunks as $chunkIndex => $chunk) {
       if ($chunkIndex > 0) {
         $this->pauseForRateLimit();
       }
-      try {
-        $chunkPublications = $this->fetchSummaryChunk($chunk, $preferredAuthorNames);
-      } catch (RuntimeException $firstException) {
-        // NCBI answers sporadically with timeouts or HTTP 5xx; one retry per chunk smooths that out
-        sleep(2);
-        try {
-          $chunkPublications = $this->fetchSummaryChunk($chunk, $preferredAuthorNames);
-        } catch (RuntimeException $retryException) {
-          throw new RuntimeException(
-            'Chunk ' . ($chunkIndex + 1) . '/' . count($chunks) . ' (PMIDs ' . reset($chunk) . '-' . end($chunk) . '), auch nach Wiederholung: '
-              . $retryException->getMessage() . ' | 1. Versuch: ' . $firstException->getMessage(),
-            0,
-            $retryException
-          );
-        }
-      }
-      $publications = array_merge($publications, $chunkPublications);
+      $publications = array_merge($publications, $this->fetchSummaryChunkAdaptively($chunk, $preferredAuthorNames));
     }
     return $publications;
+  }
+
+  /**
+   * PMIDs that could not be loaded by the last fetchSummaries() call, with the reason.
+   *
+   * @return array<string, string>
+   */
+  public function getSkippedPmids(): array {
+    return $this->skippedPmids;
+  }
+
+  /**
+   * @param string[] $pmids
+   * @param string[] $preferredAuthorNames
+   * @return array<int, array<string, mixed>>
+   * @throws RuntimeException
+   */
+  private function fetchSummaryChunkAdaptively(array $pmids, array $preferredAuthorNames): array {
+    try {
+      return $this->fetchSummaryChunk($pmids, $preferredAuthorNames);
+    } catch (TransientApiException $exception) {
+      $this->transientFailureCount++;
+      if ($this->transientFailureCount > self::MAX_TRANSIENT_FAILURES) {
+        throw new RuntimeException('Abbruch nach ' . self::MAX_TRANSIENT_FAILURES . ' Zeitüberschreitungen / Serverfehlern, zuletzt bei PMIDs ' . implode(',', $pmids) . ': ' . $exception->getMessage(), 0, $exception);
+      }
+
+      sleep(2);
+      if (count($pmids) === 1) {
+        // Last chance for a single PMID, then skip it
+        try {
+          return $this->fetchSummaryChunk($pmids, $preferredAuthorNames);
+        } catch (TransientApiException $retryException) {
+          $this->skippedPmids[(string) $pmids[0]] = $retryException->getMessage();
+          return [];
+        }
+      }
+
+      $splitIndex = (int) ceil(count($pmids) / 2);
+      $firstHalf = $this->fetchSummaryChunkAdaptively(array_slice($pmids, 0, $splitIndex), $preferredAuthorNames);
+      $this->pauseForRateLimit();
+      $secondHalf = $this->fetchSummaryChunkAdaptively(array_slice($pmids, $splitIndex), $preferredAuthorNames);
+      return array_merge($firstHalf, $secondHalf);
+    }
   }
 
   /**
@@ -232,14 +275,23 @@ final class EutilsClient {
       if ($this->settings->getForceIpv4()) {
         $ipVersionHint = ', nur IPv4';
       }
-      throw new RuntimeException($endpoint . ' (nach ' . $elapsed . $ipVersionHint . '): ' . $response->get_error_message());
+      $errorMessage = $endpoint . ' (nach ' . $elapsed . $ipVersionHint . '): ' . $response->get_error_message();
+      // cURL error 28 = timeout: the server is reachable, a smaller request may succeed
+      if (stripos($response->get_error_message(), 'cURL error 28') !== false) {
+        throw new TransientApiException($errorMessage);
+      }
+      throw new RuntimeException($errorMessage);
     }
 
     $statusCode = (int) wp_remote_retrieve_response_code($response);
     $body = wp_remote_retrieve_body($response);
     if ($statusCode !== 200) {
       // NCBI explains errors like an invalid API key in the body; never include the request (it contains the key)
-      throw new RuntimeException($endpoint . ' (nach ' . $elapsed . '): HTTP ' . $statusCode . ' ' . substr(trim(wp_strip_all_tags($body)), 0, 200));
+      $errorMessage = $endpoint . ' (nach ' . $elapsed . '): HTTP ' . $statusCode . ' ' . substr(trim(wp_strip_all_tags($body)), 0, 200);
+      if ($statusCode >= 500 || $statusCode === 429) {
+        throw new TransientApiException($errorMessage);
+      }
+      throw new RuntimeException($errorMessage);
     }
 
     $decoded = json_decode($body, true);

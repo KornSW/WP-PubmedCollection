@@ -158,14 +158,29 @@ final class PublicationService {
     $startedAt = microtime(true);
     $entry['lastAttemptAt'] = $now;
 
-    // Up to 25 chunked requests of several seconds each; the default limit of 30 s is not enough
+    // Many chunked requests, possibly split after NCBI timeouts (~20 s each); the default limit of 30 s is not enough
     if (function_exists('set_time_limit')) {
-      set_time_limit(300);
+      set_time_limit(600);
     }
 
     try {
       $pmids = $this->client->searchPmids((string) $collection['term'], (int) $collection['maxResults']);
       $publications = $this->client->fetchSummaries($pmids, $this->extractAuthorNamesFromTerm((string) $collection['term']));
+
+      $skippedPmids = $this->client->getSkippedPmids();
+      if (count($pmids) > 0 && count($skippedPmids) === count($pmids)) {
+        throw new RuntimeException('Keine einzige Publikation konnte geladen werden: ' . (string) reset($skippedPmids));
+      }
+      $keptFromCacheCount = 0;
+      if (count($skippedPmids) > 0) {
+        // Keep the previously cached version of skipped publications instead of dropping them from the list
+        foreach ($entry['publications'] as $cachedPublication) {
+          if (isset($skippedPmids[(string) $cachedPublication['pmid']])) {
+            $publications[] = $cachedPublication;
+            $keptFromCacheCount++;
+          }
+        }
+      }
 
       // An empty answer while we already know publications is far more likely a PubMed problem than reality
       if (count($publications) === 0 && count($entry['publications']) > 0) {
@@ -182,11 +197,17 @@ final class PublicationService {
       $entry['alarmSentAt'] = 0;
       $this->cache->save($collectionId, $entry);
 
+      $level = RefreshLog::LEVEL_OK;
       $message = count($publications) . ' Treffer geladen (' . count($pmids) . ' PMIDs).';
+      if (count($skippedPmids) > 0) {
+        $level = RefreshLog::LEVEL_INFO;
+        $message .= ' ' . count($skippedPmids) . ' PMID(s) übersprungen (' . $keptFromCacheCount . ' davon aus dem Cache übernommen, Rest beim nächsten Abruf): '
+          . implode(', ', array_keys($skippedPmids)) . ' - ' . (string) reset($skippedPmids);
+      }
       if ($alarmWasSent) {
         $message .= ' Störung behoben, Entwarnungs-Mail ' . $this->describeMailResult($this->notifier->sendRecovery($collection, $entry)) . '.';
       }
-      $this->log->add($collectionId, RefreshLog::LEVEL_OK, $message, microtime(true) - $startedAt);
+      $this->log->add($collectionId, $level, $message, microtime(true) - $startedAt);
     } catch (Throwable $exception) {
       // Also unexpected errors (e.g. an oddly shaped API answer): keep the old list and alarm instead of crashing the job
       if ((int) $entry['failingSince'] === 0) {
