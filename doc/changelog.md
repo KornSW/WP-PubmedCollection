@@ -2,8 +2,13 @@
 
 ## Upcoming Changes
 
+*(none)*
+
+## v 1.3.0
+released **2026-11-10**, including:
  - **New Feature:** diagnostics page ("Diagnose & Protokoll"): environment overview, on-demand connection tests to NCBI (DNS, TCP per address, HTTPS via WordPress and via cURL forced to IPv4 / IPv6 with verbose log, comparison targets, automatic assessment), test mail, and a log of the latest 50 refresh attempts. Optional setting "Nur IPv4" as workaround for servers with a broken IPv6 route. Error messages now include the failing chunk and the elapsed time.
  - **Bug Fix:** NCBI's gateway aborts esummary requests after ~20 s (HTTP 500 "error forwarding request") when several consortium papers meet in one chunk: chunks now start with 10 PMIDs and are split adaptively on timeouts / HTTP 5xx down to single PMIDs; a single PMID that still fails is skipped (its cached version is kept) instead of failing the whole list.
+
 
 ## v 1.2.0
 released **2026-11-10**, including:

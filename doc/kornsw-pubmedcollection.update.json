@@ -1,14 +1,14 @@
 {
   "name": "PubMed-Collection",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "author": "KornSW",
   "homepage": "https://github.com/KornSW/WP-PubmedCollection",
-  "download_url": "https://github.com/KornSW/WP-PubmedCollection/releases/download/v1.2.0/kornsw-pubmedcollection.zip",
+  "download_url": "https://github.com/KornSW/WP-PubmedCollection/releases/download/v1.3.0/kornsw-pubmedcollection.zip",
   "requires": "6.0",
   "requires_php": "7.4",
   "tested": "",
   "sections": {
     "description": "Includes PubMed publication lists via the official NCBI E-utilities API (cached, with admin alarm mail). Collections are managed under \"Beiträge > PubMed (KornSW)\": [include_pubmed collection=\"64421242\"]",
-    "changelog": "<h4>Version 1.2.0</h4><ul><li>**New Feature:** the cache duration is configurable in the admin page (hours, default 8).</li><li>**Bug Fix:** loading failed with a timeout (and HTTP 500 from NCBI) because consortium papers carry thousands of authors: summaries are now loaded in chunks of 20 with retry, long author lists are shortened (first 20, the authors of the search filter, last author), and page views never wait for PubMed anymore (refresh runs in the background via WP-Cron).</li></ul>"
+    "changelog": "<h4>Version 1.3.0</h4><ul><li>**New Feature:** diagnostics page (&quot;Diagnose &amp; Protokoll&quot;): environment overview, on-demand connection tests to NCBI (DNS, TCP per address, HTTPS via WordPress and via cURL forced to IPv4 / IPv6 with verbose log, comparison targets, automatic assessment), test mail, and a log of the latest 50 refresh attempts. Optional setting &quot;Nur IPv4&quot; as workaround for servers with a broken IPv6 route. Error messages now include the failing chunk and the elapsed time.</li></ul>"
   }
 }
