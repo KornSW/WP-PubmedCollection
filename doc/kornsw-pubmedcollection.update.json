@@ -1,14 +1,14 @@
 {
   "name": "PubMed-Collection",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "author": "KornSW",
   "homepage": "https://github.com/KornSW/WP-PubmedCollection",
-  "download_url": "https://github.com/KornSW/WP-PubmedCollection/releases/download/v1.0.3/kornsw-pubmedcollection.zip",
+  "download_url": "https://github.com/KornSW/WP-PubmedCollection/releases/download/v1.1.0/kornsw-pubmedcollection.zip",
   "requires": "6.0",
   "requires_php": "7.4",
   "tested": "",
   "sections": {
-    "description": "Includes PubMed Shortcode: [include_pubmed collection=\"64421242\"]",
-    "changelog": "<h4>Version 1.0.3</h4><ul><li>moved **MVP** from internal Repo to here...</li></ul>"
+    "description": "Includes PubMed publication lists via the official NCBI E-utilities API (cached, with admin alarm mail). Collections are managed under \"Beiträge > PubMed (KornSW)\": [include_pubmed collection=\"64421242\"]",
+    "changelog": "<h4>Version 1.1.0</h4><ul><li>**New Feature:** PubMed blocks automated access to its web pages (reCAPTCHA), so the list is now loaded via the official NCBI E-utilities API. Collections are configured in the new admin page &quot;Beiträge &gt; PubMed (KornSW)&quot; (internal id, search filter with legend, optional external link, exclusions via a compact hit list with keyword highlighting, optional NCBI API key). `[include_pubmed collection=&quot;...&quot;]` refers to the internal id - after the update, create a collection per existing shortcode (using the old id keeps the shortcodes unchanged).</li><li>**New Feature:** persistent cache - the last good list is served indefinitely while PubMed is unreachable, the admin gets an alarm mail (and a mail on recovery), editors see a notice on the page.</li><li>**Bug Fix:** the attribute `highlightAuthor` now works (was ignored due to lower-cased attribute names).</li></ul>"
   }
 }
