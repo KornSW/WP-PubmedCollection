@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace KornSW\PubmedCollection;
 
 use RuntimeException;
+use Throwable;
 
 if (!defined('ABSPATH')) {
   exit;
@@ -16,7 +17,8 @@ if (!defined('ABSPATH')) {
  */
 final class PublicationService {
 
-  private const CACHE_SECONDS = 12 * HOUR_IN_SECONDS;
+  /** WP-Cron hook of the background refresh, argument: collection id. */
+  public const REFRESH_HOOK = 'kornsw_pmc_refresh_collection';
 
   /** Pause between two refresh attempts while PubMed is failing. */
   private const RETRY_SECONDS = HOUR_IN_SECONDS;
@@ -30,28 +32,25 @@ final class PublicationService {
 
   private AlarmNotifier $notifier;
 
-  public function __construct(EutilsClient $client, PublicationCache $cache, AlarmNotifier $notifier) {
+  private Settings $settings;
+
+  public function __construct(EutilsClient $client, PublicationCache $cache, AlarmNotifier $notifier, Settings $settings) {
     $this->client = $client;
     $this->cache = $cache;
     $this->notifier = $notifier;
+    $this->settings = $settings;
   }
 
   /**
-   * Returns the cache entry of the collection, refreshing it first when it is outdated (or when forced).
+   * Returns the cache entry of the collection, refreshing it synchronously first when it is outdated (or when forced).
+   * A refresh can take a minute, so this is meant for the admin page and the background job only.
    *
    * @param array<string, mixed> $collection
    * @return array<string, mixed>
    */
   public function getEntry(array $collection, bool $forceRefresh = false): array {
     $collectionId = (string) $collection['id'];
-    $queryHash = $this->buildQueryHash($collection);
-
-    $entry = $this->cache->load($collectionId);
-    if ($entry['queryHash'] !== $queryHash) {
-      // The filter was changed: the old result belongs to a different query and must not be shown anymore
-      $entry = $this->cache->createEmptyEntry();
-      $entry['queryHash'] = $queryHash;
-    }
+    $entry = $this->loadCurrentEntry($collection);
 
     if (($forceRefresh || $this->needsRefresh($entry)) && $this->cache->tryAcquireLock($collectionId)) {
       try {
@@ -61,6 +60,47 @@ final class PublicationService {
       }
     }
 
+    return $entry;
+  }
+
+  /**
+   * Returns the cache entry immediately (for page views) and schedules a background refresh when it is outdated.
+   *
+   * @param array<string, mixed> $collection
+   * @return array<string, mixed>
+   */
+  public function getCachedEntry(array $collection): array {
+    $entry = $this->loadCurrentEntry($collection);
+    if ($this->needsRefresh($entry)) {
+      $arguments = [(string) $collection['id']];
+      if (wp_next_scheduled(self::REFRESH_HOOK, $arguments) === false) {
+        wp_schedule_single_event(time(), self::REFRESH_HOOK, $arguments);
+      }
+    }
+    return $entry;
+  }
+
+  /**
+   * Background job (WP-Cron) scheduled by getCachedEntry().
+   *
+   * @param array<string, mixed> $collection
+   */
+  public function refreshInBackground(array $collection): void {
+    $this->getEntry($collection);
+  }
+
+  /**
+   * @param array<string, mixed> $collection
+   * @return array<string, mixed>
+   */
+  private function loadCurrentEntry(array $collection): array {
+    $queryHash = $this->buildQueryHash($collection);
+    $entry = $this->cache->load((string) $collection['id']);
+    if ($entry['queryHash'] !== $queryHash) {
+      // The filter was changed: the old result belongs to a different query and must not be shown anymore
+      $entry = $this->cache->createEmptyEntry();
+      $entry['queryHash'] = $queryHash;
+    }
     return $entry;
   }
 
@@ -83,7 +123,7 @@ final class PublicationService {
    */
   private function needsRefresh(array $entry): bool {
     $now = time();
-    if ((int) $entry['fetchedAt'] + self::CACHE_SECONDS > $now) {
+    if ((int) $entry['fetchedAt'] + $this->settings->getCacheHours() * HOUR_IN_SECONDS > $now) {
       return false;
     }
     if ((int) $entry['failingSince'] > 0 && (int) $entry['lastAttemptAt'] + self::RETRY_SECONDS > $now) {
@@ -104,9 +144,14 @@ final class PublicationService {
     $now = time();
     $entry['lastAttemptAt'] = $now;
 
+    // Up to 25 chunked requests of several seconds each; the default limit of 30 s is not enough
+    if (function_exists('set_time_limit')) {
+      set_time_limit(300);
+    }
+
     try {
       $pmids = $this->client->searchPmids((string) $collection['term'], (int) $collection['maxResults']);
-      $publications = $this->client->fetchSummaries($pmids);
+      $publications = $this->client->fetchSummaries($pmids, $this->extractAuthorNamesFromTerm((string) $collection['term']));
 
       // An empty answer while we already know publications is far more likely a PubMed problem than reality
       if (count($publications) === 0 && count($entry['publications']) > 0) {
@@ -126,7 +171,8 @@ final class PublicationService {
       if ($alarmWasSent) {
         $this->notifier->sendRecovery($collection, $entry);
       }
-    } catch (RuntimeException $exception) {
+    } catch (Throwable $exception) {
+      // Also unexpected errors (e.g. an oddly shaped API answer): keep the old list and alarm instead of crashing the job
       if ((int) $entry['failingSince'] === 0) {
         $entry['failingSince'] = $now;
       }
@@ -141,6 +187,31 @@ final class PublicationService {
     }
 
     return $entry;
+  }
+
+  /**
+   * Finds the author names of the filter (e.g. "Korn S" in 'Korn S[au] AND Mainz[ad]'), so they survive
+   * the shortening of long author lists and can still be highlighted.
+   *
+   * @return string[]
+   */
+  private function extractAuthorNamesFromTerm(string $term): array {
+    $names = [];
+    if (preg_match_all('/([^\[\]()]+)\[(?:au|auth|author|1au|fau|lastau|full author name)\]/iu', $term, $matches) === false) {
+      return $names;
+    }
+    foreach ($matches[1] as $match) {
+      // The match may start with the rest of the previous expression, e.g. ' AND Korn S'
+      $parts = preg_split('/\s+(?:AND|OR|NOT)\s+/', ' ' . $match . ' ');
+      if (!is_array($parts)) {
+        continue;
+      }
+      $name = trim((string) end($parts), " \t\"");
+      if ($name !== '') {
+        $names[] = $name;
+      }
+    }
+    return array_values(array_unique($names));
   }
 
   /**

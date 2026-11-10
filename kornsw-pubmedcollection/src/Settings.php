@@ -19,6 +19,29 @@ final class Settings {
 
   private const CIPHER = 'aes-256-cbc';
 
+  public const DEFAULT_CACHE_HOURS = 8;
+
+  public const MAX_CACHE_HOURS = 720;
+
+  /**
+   * After this many hours a page view triggers a background refresh of the list.
+   */
+  public function getCacheHours(): int {
+    $cacheHours = $this->readSetting('cacheHours');
+    if ($cacheHours === '') {
+      return self::DEFAULT_CACHE_HOURS;
+    }
+    return $this->clampCacheHours((int) $cacheHours);
+  }
+
+  public function saveCacheHours(int $cacheHours): void {
+    $this->writeSetting('cacheHours', (string) $this->clampCacheHours($cacheHours));
+  }
+
+  private function clampCacheHours(int $cacheHours): int {
+    return max(1, min(self::MAX_CACHE_HOURS, $cacheHours));
+  }
+
   public function hasApiKey(): bool {
     return $this->readSetting('apiKeyEncrypted') !== '';
   }

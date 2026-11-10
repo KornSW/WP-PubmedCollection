@@ -175,6 +175,16 @@ final class AdminPage {
       <?php wp_nonce_field('kornsw_pmc_save_settings'); ?>
       <table class="form-table" role="presentation">
         <tr>
+          <th scope="row"><label for="kornsw-pmc-cache-hours">Cachedauer</label></th>
+          <td>
+            <input type="number" id="kornsw-pmc-cache-hours" name="cache_hours" min="1" max="<?php echo esc_attr((string) Settings::MAX_CACHE_HOURS); ?>" value="<?php echo esc_attr((string) $this->settings->getCacheHours()); ?>"> Stunden
+            <p class="description">
+              Gilt für alle Collections (Standard: <?php echo esc_html((string) Settings::DEFAULT_CACHE_HOURS); ?>). Ist die Liste älter, löst der nächste Seitenaufruf eine Aktualisierung im Hintergrund aus -
+              Besucher sehen bis dahin den bisherigen Stand. Ist PubMed nicht erreichbar, bleibt der bisherige Stand unbegrenzt erhalten.
+            </p>
+          </td>
+        </tr>
+        <tr>
           <th scope="row"><label for="kornsw-pmc-api-key">NCBI-API-Key</label></th>
           <td>
             <input type="password" id="kornsw-pmc-api-key" name="api_key" class="regular-text" autocomplete="new-password" placeholder="<?php echo esc_attr($placeholder); ?>">
@@ -352,7 +362,7 @@ final class AdminPage {
           <tr class="<?php echo esc_attr($rowClass); ?>" data-pmid="<?php echo esc_attr($pmid); ?>">
             <td class="col-exclude"><input type="checkbox" class="kornsw-pmc-exclude" value="<?php echo esc_attr($pmid); ?>" title="PMID <?php echo esc_attr($pmid); ?> ausschließen"<?php checked($isExcluded); ?>></td>
             <td><a href="<?php echo esc_url('https://pubmed.ncbi.nlm.nih.gov/' . rawurlencode($pmid) . '/'); ?>" target="_blank" rel="noopener"><span class="kornsw-pmc-hl"><?php echo esc_html((string) $publication['title']); ?></span></a></td>
-            <td class="authors"><span class="kornsw-pmc-hl"><?php echo esc_html(implode(', ', $publication['authors'])); ?></span></td>
+            <td class="authors"><span class="kornsw-pmc-hl"><?php echo esc_html(Formatting::authorList($publication)); ?></span></td>
             <td class="citation"><?php echo esc_html(trim((string) $publication['source'] . '. ' . (string) $publication['pubDate'], '. ')); ?></td>
           </tr>
         <?php } ?>
@@ -439,6 +449,10 @@ final class AdminPage {
   public function handleSaveSettings(): void {
     $this->assertCapability();
     check_admin_referer('kornsw_pmc_save_settings');
+
+    if (isset($_POST['cache_hours'])) {
+      $this->settings->saveCacheHours((int) $_POST['cache_hours']);
+    }
 
     if (($_POST['remove_api_key'] ?? '') === '1') {
       $this->settings->removeApiKey();

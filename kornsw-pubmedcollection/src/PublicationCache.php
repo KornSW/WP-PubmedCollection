@@ -19,7 +19,8 @@ final class PublicationCache {
 
   private const LOCK_PREFIX = 'kornsw_pmc_lock_';
 
-  private const LOCK_SECONDS = 60;
+  /** Longer than a complete chunked refresh may take. */
+  private const LOCK_SECONDS = 300;
 
   /**
    * Returns the stored entry or an empty one.

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace KornSW\PubmedCollection;
 
+use Throwable;
+
 if (!defined('ABSPATH')) {
   exit;
 }
@@ -24,11 +26,23 @@ final class PubmedShortcode {
   }
 
   /**
-   * Shortcode callback.
+   * Shortcode callback. Whatever goes wrong, the page itself must never break.
    *
    * @param array<string, string>|string $attributes
    */
   public function render($attributes): string {
+    try {
+      return $this->renderCollection($attributes);
+    } catch (Throwable $exception) {
+      error_log('kornsw-pubmedcollection: shortcode failed: ' . $exception->getMessage());
+      return $this->renderEditorHint('Interner Fehler beim Anzeigen der Liste: ' . $exception->getMessage());
+    }
+  }
+
+  /**
+   * @param array<string, string>|string $attributes
+   */
+  private function renderCollection($attributes): string {
     // shortcode_atts() matches keys case-sensitively, but WordPress lower-cases the given attribute names
     $attributes = shortcode_atts([
       'collection' => '',
@@ -44,7 +58,8 @@ final class PubmedShortcode {
       return $this->renderEditorHint('Die Collection "' . $collectionId . '" ist nicht angelegt. Bitte unter "Beiträge > PubMed (KornSW)" eine Collection mit dieser ID anlegen.');
     }
 
-    $entry = $this->publications->getEntry($collection);
+    // Never blocks the page view: an outdated list is refreshed in the background (WP-Cron)
+    $entry = $this->publications->getCachedEntry($collection);
 
     $excludedPmids = array_flip($collection['excludedPmids']);
     $visiblePublications = [];
@@ -74,6 +89,8 @@ final class PubmedShortcode {
     if ((int) $entry['fetchedAt'] === 0) {
       if ((int) $entry['failingSince'] > 0) {
         $output .= '<p>Die Publikationsliste ist derzeit nicht verfügbar.</p>';
+      } else {
+        $output .= $this->renderEditorHint('Die Liste wird gerade im Hintergrund von PubMed geladen (kann etwa eine Minute dauern) - bitte später neu laden.');
       }
       return $output;
     }
@@ -87,7 +104,7 @@ final class PubmedShortcode {
 
       $authors = 'N/A';
       if (count($publication['authors']) > 0) {
-        $authors = esc_html(implode(', ', $publication['authors']) . '.');
+        $authors = esc_html(Formatting::authorList($publication));
         if ($highlightAuthor !== '') {
           $escapedHighlight = esc_html($highlightAuthor);
           $authors = str_replace($escapedHighlight, '<span style="color: blue"><b>' . $escapedHighlight . '</b></span>', $authors);

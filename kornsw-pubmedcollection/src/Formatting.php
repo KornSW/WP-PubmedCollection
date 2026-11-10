@@ -23,4 +23,18 @@ final class Formatting {
     return wp_date('d.m.Y H:i', $timestamp);
   }
 
+  /**
+   * Plain-text author list ("A, B, …, Korn S, …, Z.") plus the total count if the list was shortened.
+   *
+   * @param array<string, mixed> $publication
+   */
+  public static function authorList(array $publication): string {
+    $authorList = implode(', ', $publication['authors']) . '.';
+    $authorCount = (int) ($publication['authorCount'] ?? 0);
+    if ($authorCount > count($publication['authors'])) {
+      $authorList .= ' (' . $authorCount . ' Autoren)';
+    }
+    return $authorList;
+  }
+
 }

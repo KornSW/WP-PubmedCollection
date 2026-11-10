@@ -18,7 +18,12 @@ final class EutilsClient {
 
   private const BASE_URL = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/';
 
-  private const TIMEOUT_SECONDS = 15;
+  private const TIMEOUT_SECONDS = 30;
+
+  /** esummary needs ~5 s for 20 ids when consortium papers (thousands of authors) are among them. */
+  private const SUMMARY_CHUNK_SIZE = 20;
+
+  private const MAX_LISTED_AUTHORS = 20;
 
   private Settings $settings;
 
@@ -58,17 +63,40 @@ final class EutilsClient {
   }
 
   /**
-   * Loads the summaries (title, journal, date, authors) of the given PMIDs.
+   * Loads the summaries (title, journal, date, authors) of the given PMIDs in small chunks: consortium papers
+   * carry thousands of authors (up to ~300 KB each), so large requests run into NCBI timeouts / HTTP 500.
    *
    * @param string[] $pmids
-   * @return array<int, array{pmid: string, title: string, source: string, pubDate: string, sortPubDate: string, authors: string[]}>
+   * @param string[] $preferredAuthorNames authors (e.g. from the search filter) that are kept when shortening author lists
+   * @return array<int, array{pmid: string, title: string, source: string, pubDate: string, sortPubDate: string, authors: string[], authorCount: int}>
    * @throws RuntimeException if the API is not reachable or answers with an error.
    */
-  public function fetchSummaries(array $pmids): array {
-    if (count($pmids) === 0) {
-      return [];
+  public function fetchSummaries(array $pmids, array $preferredAuthorNames): array {
+    $publications = [];
+    $chunks = array_chunk($pmids, self::SUMMARY_CHUNK_SIZE);
+    foreach ($chunks as $chunkIndex => $chunk) {
+      if ($chunkIndex > 0) {
+        $this->pauseForRateLimit();
+      }
+      try {
+        $chunkPublications = $this->fetchSummaryChunk($chunk, $preferredAuthorNames);
+      } catch (RuntimeException $exception) {
+        // NCBI answers sporadically with timeouts or HTTP 5xx; one retry per chunk smooths that out
+        sleep(2);
+        $chunkPublications = $this->fetchSummaryChunk($chunk, $preferredAuthorNames);
+      }
+      $publications = array_merge($publications, $chunkPublications);
     }
+    return $publications;
+  }
 
+  /**
+   * @param string[] $pmids
+   * @param string[] $preferredAuthorNames
+   * @return array<int, array<string, mixed>>
+   * @throws RuntimeException
+   */
+  private function fetchSummaryChunk(array $pmids, array $preferredAuthorNames): array {
     $response = $this->requestJson('esummary.fcgi', [
       'db' => 'pubmed',
       'id' => implode(',', $pmids)
@@ -91,17 +119,74 @@ final class EutilsClient {
       if (isset($summary['error'])) {
         continue;
       }
+      $authorNames = $this->extractAuthorNames($summary['authors'] ?? []);
       $publications[] = [
         'pmid' => $uid,
         'title' => $this->toPlainText($summary['title'] ?? ''),
         'source' => $this->toPlainText($summary['source'] ?? ''),
         'pubDate' => $this->toPlainText($summary['pubdate'] ?? ''),
         'sortPubDate' => (string) ($summary['sortpubdate'] ?? ''),
-        'authors' => $this->extractAuthorNames($summary['authors'] ?? [])
+        'authors' => $this->shortenAuthorList($authorNames, $preferredAuthorNames),
+        'authorCount' => count($authorNames)
       ];
     }
 
     return $publications;
+  }
+
+  /**
+   * NCBI allows 3 requests per second without and 10 with an API key.
+   */
+  private function pauseForRateLimit(): void {
+    if ($this->settings->getApiKey() !== '') {
+      usleep(120000);
+    } else {
+      usleep(350000);
+    }
+  }
+
+  /**
+   * Keeps the first authors, the preferred ones and the last author; gaps are marked with '…'.
+   * Without this, consortium papers would bloat the cache to dozens of MB and the page to thousands of names.
+   *
+   * @param string[] $authorNames
+   * @param string[] $preferredAuthorNames
+   * @return string[]
+   */
+  private function shortenAuthorList(array $authorNames, array $preferredAuthorNames): array {
+    $authorCount = count($authorNames);
+    if ($authorCount <= self::MAX_LISTED_AUTHORS + 1) {
+      return $authorNames;
+    }
+
+    $shortened = [];
+    $previousKeptIndex = -1;
+    foreach ($authorNames as $index => $authorName) {
+      $isKept = $index < self::MAX_LISTED_AUTHORS || $index === $authorCount - 1 || $this->isPreferredAuthor($authorName, $preferredAuthorNames);
+      if (!$isKept) {
+        continue;
+      }
+      if ($index > $previousKeptIndex + 1) {
+        $shortened[] = '…';
+      }
+      $shortened[] = $authorName;
+      $previousKeptIndex = $index;
+    }
+    return $shortened;
+  }
+
+  /**
+   * PubMed matches "Korn S[au]" as a prefix (also "Korn SW"), so do the same here.
+   *
+   * @param string[] $preferredAuthorNames
+   */
+  private function isPreferredAuthor(string $authorName, array $preferredAuthorNames): bool {
+    foreach ($preferredAuthorNames as $preferredAuthorName) {
+      if ($preferredAuthorName !== '' && stripos($authorName, $preferredAuthorName) === 0) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
