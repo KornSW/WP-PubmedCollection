@@ -42,6 +42,21 @@ final class Settings {
     return max(1, min(self::MAX_CACHE_HOURS, $cacheHours));
   }
 
+  /**
+   * Workaround for servers with a broken IPv6 route: connect to NCBI via IPv4 only.
+   */
+  public function getForceIpv4(): bool {
+    return $this->readSetting('forceIpv4') === '1';
+  }
+
+  public function saveForceIpv4(bool $forceIpv4): void {
+    $value = '';
+    if ($forceIpv4) {
+      $value = '1';
+    }
+    $this->writeSetting('forceIpv4', $value);
+  }
+
   public function hasApiKey(): bool {
     return $this->readSetting('apiKeyEncrypted') !== '';
   }

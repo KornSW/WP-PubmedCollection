@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace KornSW\PubmedCollection\Admin;
 
+use KornSW\PubmedCollection\AlarmNotifier;
 use KornSW\PubmedCollection\CollectionRepository;
 use KornSW\PubmedCollection\Formatting;
 use KornSW\PubmedCollection\PublicationCache;
 use KornSW\PubmedCollection\PublicationService;
+use KornSW\PubmedCollection\RefreshLog;
 use KornSW\PubmedCollection\Settings;
 use RuntimeException;
 
@@ -36,7 +38,10 @@ final class AdminPage {
     'invalid_id' => ['error', 'Ungültige ID: erlaubt sind 1-64 Zeichen aus Buchstaben, Ziffern, "-" und "_".'],
     'duplicate_id' => ['error', 'Es gibt bereits eine Collection mit dieser ID.'],
     'empty_term' => ['error', 'Der Suchfilter darf nicht leer sein.'],
-    'not_found' => ['error', 'Die Collection wurde nicht gefunden.']
+    'not_found' => ['error', 'Die Collection wurde nicht gefunden.'],
+    'test_mail_sent' => ['success', 'Test-Mail wurde an WordPress (wp_mail) übergeben - bitte Posteingang und Spam-Ordner prüfen.'],
+    'test_mail_failed' => ['error', 'Test-Mail konnte NICHT versendet werden: wp_mail() meldet einen Fehler. Der Server kann vermutlich keine Mails verschicken (SMTP-Plugin nötig?).'],
+    'log_cleared' => ['success', 'Protokoll geleert.']
   ];
 
   private CollectionRepository $collections;
@@ -47,13 +52,30 @@ final class AdminPage {
 
   private PublicationCache $cache;
 
+  private RefreshLog $log;
+
+  private AlarmNotifier $notifier;
+
+  private ConnectionDiagnostics $diagnostics;
+
   private string $hookSuffix = '';
 
-  public function __construct(CollectionRepository $collections, Settings $settings, PublicationService $publications, PublicationCache $cache) {
+  public function __construct(
+    CollectionRepository $collections,
+    Settings $settings,
+    PublicationService $publications,
+    PublicationCache $cache,
+    RefreshLog $log,
+    AlarmNotifier $notifier,
+    ConnectionDiagnostics $diagnostics
+  ) {
     $this->collections = $collections;
     $this->settings = $settings;
     $this->publications = $publications;
     $this->cache = $cache;
+    $this->log = $log;
+    $this->notifier = $notifier;
+    $this->diagnostics = $diagnostics;
   }
 
   public function register(): void {
@@ -62,6 +84,8 @@ final class AdminPage {
     add_action('admin_post_kornsw_pmc_save_collection', [$this, 'handleSaveCollection']);
     add_action('admin_post_kornsw_pmc_delete_collection', [$this, 'handleDeleteCollection']);
     add_action('admin_post_kornsw_pmc_save_settings', [$this, 'handleSaveSettings']);
+    add_action('admin_post_kornsw_pmc_test_mail', [$this, 'handleTestMail']);
+    add_action('admin_post_kornsw_pmc_clear_log', [$this, 'handleClearLog']);
   }
 
   public function addMenu(): void {
@@ -105,11 +129,138 @@ final class AdminPage {
           $this->renderEditView($collection);
         }
       }
+    } elseif ($view === 'diagnostics') {
+      $this->renderDiagnosticsView();
     } else {
       $this->renderOverview();
     }
 
     echo '</div>';
+  }
+
+  /**
+   * Environment, on-demand connection tests, mail test and the refresh log.
+   */
+  private function renderDiagnosticsView(): void {
+    $runTests = isset($_GET['run']) && wp_verify_nonce(sanitize_text_field(wp_unslash($_GET['_wpnonce'] ?? '')), 'kornsw_pmc_diagnostics') !== false;
+    $runUrl = wp_nonce_url($this->pageUrl(['view' => 'diagnostics', 'run' => '1']), 'kornsw_pmc_diagnostics');
+    $recipient = $this->notifier->getRecipient();
+    if (is_array($recipient)) {
+      $recipient = implode(', ', $recipient);
+    }
+    ?>
+    <p><a href="<?php echo esc_url($this->pageUrl([])); ?>">&larr; Zurück zur Übersicht</a></p>
+    <h2>Diagnose</h2>
+
+    <h3>Umgebung</h3>
+    <?php $this->renderDiagnosticsTable($this->diagnostics->describeEnvironment()); ?>
+
+    <h3>Verbindung zu NCBI</h3>
+    <p>
+      <a class="button button-primary" href="<?php echo esc_url($runUrl); ?>">Verbindungstests ausführen</a>
+      <span class="description">Prüft DNS, TCP, HTTPS (über WordPress sowie getrennt über IPv4 / IPv6) und Vergleichsziele. Dauert bei Zeitüberschreitungen bis zu einer Minute.</span>
+    </p>
+    <?php if ($runTests) { ?>
+      <?php $this->renderDiagnosticsTable($this->diagnostics->runConnectionTests()); ?>
+    <?php } ?>
+
+    <h3>Alarm-Mail</h3>
+    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+      <input type="hidden" name="action" value="kornsw_pmc_test_mail">
+      <?php wp_nonce_field('kornsw_pmc_test_mail'); ?>
+      <p>
+        Empfänger: <code><?php echo esc_html((string) $recipient); ?></code>
+        <button type="submit" class="button">Test-Mail senden</button>
+      </p>
+    </form>
+
+    <h3>Abruf-Protokoll (letzte 50 Einträge)</h3>
+    <?php $this->renderLogTable(); ?>
+    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+      <input type="hidden" name="action" value="kornsw_pmc_clear_log">
+      <?php wp_nonce_field('kornsw_pmc_clear_log'); ?>
+      <p><button type="submit" class="button button-link-delete">Protokoll leeren</button></p>
+    </form>
+    <?php
+  }
+
+  /**
+   * @param array<int, array{label: string, status: string, details: string}> $rows
+   */
+  private function renderDiagnosticsTable(array $rows): void {
+    ?>
+    <table class="widefat striped kornsw-pmc-diagnostics">
+      <tbody>
+        <?php foreach ($rows as $row) { ?>
+          <tr class="status-<?php echo esc_attr($row['status']); ?>">
+            <th scope="row"><?php echo esc_html($this->describeStatusSymbol($row['status']) . ' ' . $row['label']); ?></th>
+            <td><pre><?php echo esc_html($row['details']); ?></pre></td>
+          </tr>
+        <?php } ?>
+      </tbody>
+    </table>
+    <?php
+  }
+
+  private function renderLogTable(): void {
+    $entries = $this->log->all();
+    if (count($entries) === 0) {
+      echo '<p><em>Noch keine Einträge.</em></p>';
+      return;
+    }
+    ?>
+    <table class="widefat striped kornsw-pmc-diagnostics">
+      <thead>
+        <tr>
+          <th>Zeit</th>
+          <th>Collection</th>
+          <th>Auslöser</th>
+          <th>Dauer</th>
+          <th>Meldung</th>
+        </tr>
+      </thead>
+      <tbody>
+        <?php foreach ($entries as $entry) { ?>
+          <tr class="status-<?php echo esc_attr((string) $entry['level']); ?>">
+            <td><?php echo esc_html($this->describeStatusSymbol((string) $entry['level']) . ' ' . wp_date('d.m.Y H:i:s', (int) $entry['time'])); ?></td>
+            <td><?php echo esc_html((string) $entry['collection']); ?></td>
+            <td><?php echo esc_html((string) $entry['trigger']); ?></td>
+            <td><?php echo esc_html(number_format((float) $entry['duration'], 1, ',', '') . ' s'); ?></td>
+            <td><?php echo esc_html((string) $entry['message']); ?></td>
+          </tr>
+        <?php } ?>
+      </tbody>
+    </table>
+    <?php
+  }
+
+  private function describeStatusSymbol(string $status): string {
+    if ($status === ConnectionDiagnostics::STATUS_OK) {
+      return '✔';
+    }
+    if ($status === ConnectionDiagnostics::STATUS_ERROR) {
+      return '✘';
+    }
+    return '•';
+  }
+
+  public function handleTestMail(): void {
+    $this->assertCapability();
+    check_admin_referer('kornsw_pmc_test_mail');
+
+    $notice = 'test_mail_failed';
+    if ($this->notifier->sendTest()) {
+      $notice = 'test_mail_sent';
+    }
+    $this->redirect(['view' => 'diagnostics'], $notice);
+  }
+
+  public function handleClearLog(): void {
+    $this->assertCapability();
+    check_admin_referer('kornsw_pmc_clear_log');
+
+    $this->log->clear();
+    $this->redirect(['view' => 'diagnostics'], 'log_cleared');
   }
 
   private function renderOverview(): void {
@@ -119,6 +270,7 @@ final class AdminPage {
       Collections werden per Shortcode eingebunden: <code>[include_pubmed collection="&lt;ID&gt;"]</code>
       (optional <code>highlightAuthor="Korn S"</code>).
       <a class="page-title-action" href="<?php echo esc_url($this->pageUrl(['view' => 'edit'])); ?>">Neue Collection anlegen</a>
+      <a class="page-title-action" href="<?php echo esc_url($this->pageUrl(['view' => 'diagnostics'])); ?>">Diagnose &amp; Protokoll</a>
     </p>
     <table class="widefat striped">
       <thead>
@@ -196,6 +348,13 @@ final class AdminPage {
               Erhältlich im NCBI-Konto unter <a href="https://account.ncbi.nlm.nih.gov/settings/" target="_blank" rel="noopener">Account Settings &gt; API Key Management</a>.
               Wird verschlüsselt gespeichert.
             </p>
+          </td>
+        </tr>
+        <tr>
+          <th scope="row">Verbindung</th>
+          <td>
+            <label><input type="checkbox" name="force_ipv4" value="1"<?php checked($this->settings->getForceIpv4()); ?>> Nur IPv4 für NCBI-Verbindungen verwenden</label>
+            <p class="description">Abhilfe, wenn die IPv6-Anbindung des Servers gestört ist (siehe <a href="<?php echo esc_url($this->pageUrl(['view' => 'diagnostics'])); ?>">Diagnose</a>).</p>
           </td>
         </tr>
       </table>
@@ -325,6 +484,7 @@ final class AdminPage {
     <h2>Suchtreffer</h2>
     <?php if ((int) $entry['failingSince'] > 0) { ?>
       <?php $this->renderNoticeBox('error', 'PubMed ist seit ' . Formatting::timestamp((int) $entry['failingSince']) . ' nicht abrufbar: ' . (string) $entry['lastError'] . ' - angezeigt wird der Stand vom ' . Formatting::timestamp((int) $entry['fetchedAt']) . '.'); ?>
+      <p><a class="button" href="<?php echo esc_url($this->pageUrl(['view' => 'diagnostics'])); ?>">Ursache untersuchen: Diagnose &amp; Protokoll</a></p>
     <?php } ?>
     <p>
       <?php echo $this->describeEntryStatus($entry); ?>
@@ -453,6 +613,7 @@ final class AdminPage {
     if (isset($_POST['cache_hours'])) {
       $this->settings->saveCacheHours((int) $_POST['cache_hours']);
     }
+    $this->settings->saveForceIpv4(($_POST['force_ipv4'] ?? '') === '1');
 
     if (($_POST['remove_api_key'] ?? '') === '1') {
       $this->settings->removeApiKey();

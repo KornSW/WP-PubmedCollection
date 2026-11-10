@@ -34,11 +34,14 @@ final class PublicationService {
 
   private Settings $settings;
 
-  public function __construct(EutilsClient $client, PublicationCache $cache, AlarmNotifier $notifier, Settings $settings) {
+  private RefreshLog $log;
+
+  public function __construct(EutilsClient $client, PublicationCache $cache, AlarmNotifier $notifier, Settings $settings, RefreshLog $log) {
     $this->client = $client;
     $this->cache = $cache;
     $this->notifier = $notifier;
     $this->settings = $settings;
+    $this->log = $log;
   }
 
   /**
@@ -52,12 +55,17 @@ final class PublicationService {
     $collectionId = (string) $collection['id'];
     $entry = $this->loadCurrentEntry($collection);
 
-    if (($forceRefresh || $this->needsRefresh($entry)) && $this->cache->tryAcquireLock($collectionId)) {
-      try {
-        $entry = $this->refresh($collection, $entry);
-      } finally {
-        $this->cache->releaseLock($collectionId);
-      }
+    if (!$forceRefresh && !$this->needsRefresh($entry)) {
+      return $entry;
+    }
+    if (!$this->cache->tryAcquireLock($collectionId)) {
+      $this->log->add($collectionId, RefreshLog::LEVEL_INFO, 'Abruf übersprungen - es läuft bereits einer.');
+      return $entry;
+    }
+    try {
+      $entry = $this->refresh($collection, $entry);
+    } finally {
+      $this->cache->releaseLock($collectionId);
     }
 
     return $entry;
@@ -74,7 +82,12 @@ final class PublicationService {
     if ($this->needsRefresh($entry)) {
       $arguments = [(string) $collection['id']];
       if (wp_next_scheduled(self::REFRESH_HOOK, $arguments) === false) {
-        wp_schedule_single_event(time(), self::REFRESH_HOOK, $arguments);
+        $scheduled = wp_schedule_single_event(time(), self::REFRESH_HOOK, $arguments);
+        if ($scheduled === true) {
+          $this->log->add((string) $collection['id'], RefreshLog::LEVEL_INFO, 'Cache veraltet - Abruf im Hintergrund eingeplant.');
+        } else {
+          $this->log->add((string) $collection['id'], RefreshLog::LEVEL_ERROR, 'Hintergrund-Abruf konnte nicht eingeplant werden (WP-Cron).');
+        }
       }
     }
     return $entry;
@@ -142,6 +155,7 @@ final class PublicationService {
   private function refresh(array $collection, array $entry): array {
     $collectionId = (string) $collection['id'];
     $now = time();
+    $startedAt = microtime(true);
     $entry['lastAttemptAt'] = $now;
 
     // Up to 25 chunked requests of several seconds each; the default limit of 30 s is not enough
@@ -168,25 +182,40 @@ final class PublicationService {
       $entry['alarmSentAt'] = 0;
       $this->cache->save($collectionId, $entry);
 
+      $message = count($publications) . ' Treffer geladen (' . count($pmids) . ' PMIDs).';
       if ($alarmWasSent) {
-        $this->notifier->sendRecovery($collection, $entry);
+        $message .= ' Störung behoben, Entwarnungs-Mail ' . $this->describeMailResult($this->notifier->sendRecovery($collection, $entry)) . '.';
       }
+      $this->log->add($collectionId, RefreshLog::LEVEL_OK, $message, microtime(true) - $startedAt);
     } catch (Throwable $exception) {
       // Also unexpected errors (e.g. an oddly shaped API answer): keep the old list and alarm instead of crashing the job
       if ((int) $entry['failingSince'] === 0) {
         $entry['failingSince'] = $now;
       }
-      $entry['lastError'] = $exception->getMessage();
-      error_log('kornsw-pubmedcollection [' . $collectionId . ']: ' . $exception->getMessage());
+      $errorMessage = $exception->getMessage();
+      if (!$exception instanceof RuntimeException) {
+        $errorMessage = get_class($exception) . ': ' . $errorMessage . ' in ' . basename($exception->getFile()) . ':' . $exception->getLine();
+      }
+      $entry['lastError'] = $errorMessage;
+      error_log('kornsw-pubmedcollection [' . $collectionId . ']: ' . $errorMessage);
 
+      $logMessage = $errorMessage;
       if ((int) $entry['alarmSentAt'] + self::ALARM_REPEAT_SECONDS <= $now) {
-        $this->notifier->sendAlarm($collection, $entry);
+        $logMessage .= ' | Alarm-Mail ' . $this->describeMailResult($this->notifier->sendAlarm($collection, $entry)) . '.';
         $entry['alarmSentAt'] = $now;
       }
       $this->cache->save($collectionId, $entry);
+      $this->log->add($collectionId, RefreshLog::LEVEL_ERROR, $logMessage, microtime(true) - $startedAt);
     }
 
     return $entry;
+  }
+
+  private function describeMailResult(bool $wasSent): string {
+    if ($wasSent) {
+      return 'versendet';
+    }
+    return 'konnte NICHT versendet werden (wp_mail)';
   }
 
   /**

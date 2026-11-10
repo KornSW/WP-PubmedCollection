@@ -16,7 +16,9 @@ if (!defined('ABSPATH')) {
  */
 final class EutilsClient {
 
-  private const BASE_URL = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/';
+  public const HOST = 'eutils.ncbi.nlm.nih.gov';
+
+  private const BASE_URL = 'https://' . self::HOST . '/entrez/eutils/';
 
   private const TIMEOUT_SECONDS = 30;
 
@@ -80,10 +82,19 @@ final class EutilsClient {
       }
       try {
         $chunkPublications = $this->fetchSummaryChunk($chunk, $preferredAuthorNames);
-      } catch (RuntimeException $exception) {
+      } catch (RuntimeException $firstException) {
         // NCBI answers sporadically with timeouts or HTTP 5xx; one retry per chunk smooths that out
         sleep(2);
-        $chunkPublications = $this->fetchSummaryChunk($chunk, $preferredAuthorNames);
+        try {
+          $chunkPublications = $this->fetchSummaryChunk($chunk, $preferredAuthorNames);
+        } catch (RuntimeException $retryException) {
+          throw new RuntimeException(
+            'Chunk ' . ($chunkIndex + 1) . '/' . count($chunks) . ' (PMIDs ' . reset($chunk) . '-' . end($chunk) . '), auch nach Wiederholung: '
+              . $retryException->getMessage() . ' | 1. Versuch: ' . $firstException->getMessage(),
+            0,
+            $retryException
+          );
+        }
       }
       $publications = array_merge($publications, $chunkPublications);
     }
@@ -209,20 +220,26 @@ final class EutilsClient {
      */
     $parameters = (array) apply_filters('kornsw_pmc_eutils_parameters', $parameters);
 
+    $startedAt = microtime(true);
     $response = wp_remote_post(self::BASE_URL . $endpoint, [
       'timeout' => self::TIMEOUT_SECONDS,
       'body' => $parameters
     ]);
+    $elapsed = number_format(microtime(true) - $startedAt, 1, ',', '') . ' s';
 
     if (is_wp_error($response)) {
-      throw new RuntimeException($endpoint . ': ' . $response->get_error_message());
+      $ipVersionHint = '';
+      if ($this->settings->getForceIpv4()) {
+        $ipVersionHint = ', nur IPv4';
+      }
+      throw new RuntimeException($endpoint . ' (nach ' . $elapsed . $ipVersionHint . '): ' . $response->get_error_message());
     }
 
     $statusCode = (int) wp_remote_retrieve_response_code($response);
     $body = wp_remote_retrieve_body($response);
     if ($statusCode !== 200) {
       // NCBI explains errors like an invalid API key in the body; never include the request (it contains the key)
-      throw new RuntimeException($endpoint . ': HTTP ' . $statusCode . ' ' . substr(trim(wp_strip_all_tags($body)), 0, 200));
+      throw new RuntimeException($endpoint . ' (nach ' . $elapsed . '): HTTP ' . $statusCode . ' ' . substr(trim(wp_strip_all_tags($body)), 0, 200));
     }
 
     $decoded = json_decode($body, true);
