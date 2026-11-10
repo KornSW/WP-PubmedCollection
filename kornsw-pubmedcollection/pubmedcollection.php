@@ -5,7 +5,7 @@
  * Update URI: https://raw.githubusercontent.com/KornSW/WP-PubmedCollection/master/doc/kornsw-pubmedcollection.update.json
  * Plugin URI: https://github.com/KornSW/WP-PubmedCollection
  * Description: Includes PubMed publication lists via the official NCBI E-utilities API (cached, with admin alarm mail). Collections are managed under "Beiträge > PubMed (KornSW)": [include_pubmed collection="64421242"]
- * Version: 1.3.1
+ * Version: 1.4.0
  * Author: KornSW
  * Requires at least: 6.0
  * Requires PHP: 7.4
