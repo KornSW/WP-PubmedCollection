@@ -4,6 +4,12 @@
 
  - **New Feature:** the hit list in the admin page shows how PubMed interpreted the search filter (query translation, total hit count, warnings about ignored phrases or unknown fields), to find out why e.g. a `NOT` does not take effect.
 
+## v 1.3.1
+released **2026-11-10**, including:
+ - Merge branch 'master' of https://github.com/KornSW/WP-PubmedCollection
+ - optimierung api aufruf
+
+
 ## v 1.3.0
 released **2026-11-10**, including:
  - **New Feature:** diagnostics page ("Diagnose & Protokoll"): environment overview, on-demand connection tests to NCBI (DNS, TCP per address, HTTPS via WordPress and via cURL forced to IPv4 / IPv6 with verbose log, comparison targets, automatic assessment), test mail, and a log of the latest 50 refresh attempts. Optional setting "Nur IPv4" as workaround for servers with a broken IPv6 route. Error messages now include the failing chunk and the elapsed time.
