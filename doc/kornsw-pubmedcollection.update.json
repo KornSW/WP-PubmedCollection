@@ -1,14 +1,14 @@
 {
   "name": "PubMed-Collection",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "author": "KornSW",
   "homepage": "https://github.com/KornSW/WP-PubmedCollection",
-  "download_url": "https://github.com/KornSW/WP-PubmedCollection/releases/download/v1.4.0/kornsw-pubmedcollection.zip",
+  "download_url": "https://github.com/KornSW/WP-PubmedCollection/releases/download/v1.5.0/kornsw-pubmedcollection.zip",
   "requires": "6.0",
   "requires_php": "7.4",
   "tested": "",
   "sections": {
-    "description": "Includes PubMed publication lists via the official NCBI E-utilities API (cached, with admin alarm mail). Collections are managed under \"Beiträge > PubMed (KornSW)\": [include_pubmed collection=\"64421242\"]",
-    "changelog": "<h4>Version 1.4.0</h4><ul><li>**New Feature:** the hit list in the admin page shows how PubMed interpreted the search filter (query translation, total hit count, warnings about ignored phrases or unknown fields), to find out why e.g. a `NOT` does not take effect.</li></ul>"
+    "description": "Locally maintained PubMed publication lists with auto import of new publications (NCBI E-utilities API, review mails) and manual live search. Collections are managed under \"Beiträge > PubMed (KornSW)\": [include_pubmed collection=\"64421242\"]",
+    "changelog": "<h4>Version 1.5.0</h4><ul><li>**New Feature:** two-level model instead of a live search result: each collection keeps a locally stored list. Level 1 is the auto import (WP-Cron, every N days, default 3): publications newly added to PubMed that match the auto import query are imported and announced by a review mail with direct links. Level 2 is the admin UI with the tabs &quot;Liste&quot; / &quot;Ausgeschlossen&quot; (search by PMID or full text, bulk exclude / restore, deep link `&amp;pmid=`), &quot;Manuell hinzufügen&quot; (live search with three modes: PMIDs, query builder without PubMed syntax, raw query; newest 30 per page, take over selected hits) and &quot;Einstellungen&quot;. Page views never query PubMed. Existing collections are migrated (filter -&gt; auto import query, cached hits -&gt; list, exclusions -&gt; excluded list).</li><li>**New Feature:** the highlighted author (blue / bold on the website) is a setting per collection (comma separated names; existing collections keep &quot;Korn S&quot;); the shortcode attribute `highlightAuthor` still overrides it. Highlighted authors and full-name authors of the query (`[fau]`) are kept when long author lists are shortened.</li></ul>"
   }
 }
