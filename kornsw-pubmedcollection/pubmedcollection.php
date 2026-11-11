@@ -4,7 +4,7 @@
  * Plugin Name: PubMed-Collection
  * Update URI: https://raw.githubusercontent.com/KornSW/WP-PubmedCollection/master/doc/kornsw-pubmedcollection.update.json
  * Plugin URI: https://github.com/KornSW/WP-PubmedCollection
- * Description: Includes PubMed publication lists via the official NCBI E-utilities API (cached, with admin alarm mail). Collections are managed under "Beiträge > PubMed (KornSW)": [include_pubmed collection="64421242"]
+ * Description: Locally maintained PubMed publication lists with auto import of new publications (NCBI E-utilities API, review mails) and manual live search. Collections are managed under "Beiträge > PubMed (KornSW)": [include_pubmed collection="64421242"]
  * Version: 1.4.0
  * Author: KornSW
  * Requires at least: 6.0
@@ -42,4 +42,5 @@ spl_autoload_register(function (string $className): void {
   }
 });
 
+register_deactivation_hook(__FILE__, [\KornSW\PubmedCollection\Plugin::class, 'deactivate']);
 add_action('plugins_loaded', [\KornSW\PubmedCollection\Plugin::class, 'boot']);

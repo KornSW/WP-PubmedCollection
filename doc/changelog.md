@@ -2,7 +2,8 @@
 
 ## Upcoming Changes
 
-*(none)*
+ - **New Feature:** two-level model instead of a live search result: each collection keeps a locally stored list. Level 1 is the auto import (WP-Cron, every N days, default 3): publications newly added to PubMed that match the auto import query are imported and announced by a review mail with direct links. Level 2 is the admin UI with the tabs "Liste" / "Ausgeschlossen" (search by PMID or full text, bulk exclude / restore, deep link `&pmid=`), "Manuell hinzufügen" (live search with three modes: PMIDs, query builder without PubMed syntax, raw query; newest 30 per page, take over selected hits) and "Einstellungen". Page views never query PubMed. Existing collections are migrated (filter -> auto import query, cached hits -> list, exclusions -> excluded list).
+ - **New Feature:** the highlighted author (blue / bold on the website) is a setting per collection (comma separated names; existing collections keep "Korn S"); the shortcode attribute `highlightAuthor` still overrides it. Highlighted authors and full-name authors of the query (`[fau]`) are kept when long author lists are shortened.
 
 ## v 1.4.0
 released **2026-11-10**, including:

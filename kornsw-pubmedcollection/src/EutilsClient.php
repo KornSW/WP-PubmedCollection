@@ -59,16 +59,24 @@ final class EutilsClient {
   /**
    * Runs a PubMed search and returns the matching PMIDs, newest publications first.
    *
+   * @param array<string, string> $options further esearch parameters: 'retstart' (paging),
+   *   'datetype' + 'mindate' + 'maxdate' (e.g. 'edat' = date the record was added to PubMed)
    * @return string[]
    * @throws RuntimeException if the API is not reachable or answers with an error.
    */
-  public function searchPmids(string $term, int $maxResults): array {
-    $response = $this->requestJson('esearch.fcgi', [
+  public function searchPmids(string $term, int $maxResults, array $options = []): array {
+    $parameters = [
       'db' => 'pubmed',
       'term' => $term,
       'retmax' => (string) $maxResults,
       'sort' => 'pub_date'
-    ]);
+    ];
+    foreach (['retstart', 'datetype', 'mindate', 'maxdate'] as $optionName) {
+      if (isset($options[$optionName]) && $options[$optionName] !== '') {
+        $parameters[$optionName] = (string) $options[$optionName];
+      }
+    }
+    $response = $this->requestJson('esearch.fcgi', $parameters);
 
     if (isset($response['error'])) {
       throw new RuntimeException('esearch: ' . (string) $response['error']);

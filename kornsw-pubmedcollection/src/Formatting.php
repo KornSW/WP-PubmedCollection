@@ -37,4 +37,35 @@ final class Formatting {
     return $authorList;
   }
 
+  /**
+   * "Journal. 2023 Nov 16"
+   *
+   * @param array<string, mixed> $publication
+   */
+  public static function citation(array $publication): string {
+    return trim((string) ($publication['source'] ?? '') . '. ' . (string) ($publication['pubDate'] ?? ''), '. ');
+  }
+
+  /**
+   * Where a listed publication came from, e.g. "Auto-Import 11.11.2026".
+   *
+   * @param array<string, mixed> $publication
+   */
+  public static function origin(array $publication): string {
+    $labels = [
+      ItemStore::ORIGIN_AUTO => 'Auto-Import',
+      ItemStore::ORIGIN_MANUAL => 'Manuell',
+      ItemStore::ORIGIN_MIGRATION => 'Übernommen'
+    ];
+    $origin = (string) ($publication['origin'] ?? '');
+    $label = $origin;
+    if (isset($labels[$origin])) {
+      $label = $labels[$origin];
+    }
+    if (isset($publication['addedAt'])) {
+      $label .= ' ' . wp_date('d.m.Y', (int) $publication['addedAt']);
+    }
+    return $label;
+  }
+
 }

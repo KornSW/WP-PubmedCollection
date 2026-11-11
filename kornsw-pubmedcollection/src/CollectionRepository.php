@@ -9,19 +9,19 @@ if (!defined('ABSPATH')) {
 }
 
 /**
- * Stores the collections configured in the admin UI. A collection is addressed by an internal id
+ * Stores the configuration of the collections. A collection is addressed by an internal id
  * (freely chosen, may equal the id of a PubMed collection so that existing shortcodes keep working).
+ * The content (listed / excluded publications) lives in the ItemStore.
  */
 final class CollectionRepository {
 
-  private const OPTION_NAME = 'kornsw_pmc_collections';
+  public const OPTION_NAME = 'kornsw_pmc_collections';
 
-  public const DEFAULT_MAX_RESULTS = 200;
-
-  public const MAX_RESULTS_LIMIT = 500;
+  /** Highlight default of collections created before the setting existed (was hard-coded in the shortcode). */
+  private const LEGACY_HIGHLIGHT_AUTHOR = 'Korn S';
 
   /**
-   * @return array<string, array{id: string, term: string, externalUrl: string, maxResults: int, excludedPmids: string[]}>
+   * @return array<string, array{id: string, autoImportQuery: string, autoImportEnabled: bool, externalUrl: string, highlightAuthor: string}>
    */
   public function all(): array {
     $stored = get_option(self::OPTION_NAME, []);
@@ -40,7 +40,7 @@ final class CollectionRepository {
   }
 
   /**
-   * @return array{id: string, term: string, externalUrl: string, maxResults: int, excludedPmids: string[]}|null
+   * @return array{id: string, autoImportQuery: string, autoImportEnabled: bool, externalUrl: string, highlightAuthor: string}|null
    */
   public function find(string $id): ?array {
     $collections = $this->all();
@@ -51,10 +51,10 @@ final class CollectionRepository {
   }
 
   /**
-   * @return array{id: string, term: string, externalUrl: string, maxResults: int, excludedPmids: string[]}
+   * @return array{id: string, autoImportQuery: string, autoImportEnabled: bool, externalUrl: string, highlightAuthor: string}
    */
   public function createEmpty(): array {
-    return $this->normalize([]);
+    return $this->normalize(['autoImportEnabled' => true, 'highlightAuthor' => '']);
   }
 
   /**
@@ -83,7 +83,7 @@ final class CollectionRepository {
   }
 
   /**
-   * The link shown above the list: the configured external url, otherwise the PubMed search for the filter.
+   * The link shown above the list: the configured external url, otherwise the PubMed search of the auto import query.
    *
    * @param array<string, mixed> $collection
    */
@@ -91,40 +91,45 @@ final class CollectionRepository {
     if ((string) $collection['externalUrl'] !== '') {
       return (string) $collection['externalUrl'];
     }
-    return self::buildSearchUrl((string) $collection['term']);
-  }
-
-  public static function buildSearchUrl(string $term): string {
-    return 'https://pubmed.ncbi.nlm.nih.gov/?term=' . rawurlencode($term) . '&sort=pubdate';
+    if ((string) $collection['autoImportQuery'] !== '') {
+      return PubmedQuery::buildSearchUrl((string) $collection['autoImportQuery']);
+    }
+    return 'https://pubmed.ncbi.nlm.nih.gov/';
   }
 
   /**
    * @param array<string, mixed> $collection
-   * @return array{id: string, term: string, externalUrl: string, maxResults: int, excludedPmids: string[]}
+   * @return array{id: string, autoImportQuery: string, autoImportEnabled: bool, externalUrl: string, highlightAuthor: string}
    */
   private function normalize(array $collection): array {
-    $maxResults = self::DEFAULT_MAX_RESULTS;
-    if (isset($collection['maxResults'])) {
-      $maxResults = max(1, min(self::MAX_RESULTS_LIMIT, (int) $collection['maxResults']));
-    }
-
-    $excludedPmids = [];
-    if (isset($collection['excludedPmids']) && is_array($collection['excludedPmids'])) {
-      foreach ($collection['excludedPmids'] as $pmid) {
-        $pmid = (string) $pmid;
-        if (ctype_digit($pmid)) {
-          $excludedPmids[] = $pmid;
-        }
-      }
-    }
-
     return [
       'id' => (string) ($collection['id'] ?? ''),
-      'term' => (string) ($collection['term'] ?? ''),
+      'autoImportQuery' => (string) ($collection['autoImportQuery'] ?? ''),
+      'autoImportEnabled' => (bool) ($collection['autoImportEnabled'] ?? false),
       'externalUrl' => (string) ($collection['externalUrl'] ?? ''),
-      'maxResults' => $maxResults,
-      'excludedPmids' => array_values(array_unique($excludedPmids))
+      // Collections from before this setting existed keep the former hard-coded default
+      'highlightAuthor' => (string) ($collection['highlightAuthor'] ?? self::LEGACY_HIGHLIGHT_AUTHOR)
     ];
+  }
+
+  /**
+   * Names highlighted in the author lists of the collection.
+   *
+   * @param array<string, mixed> $collection
+   * @return string[]
+   */
+  public static function highlightNames(array $collection): array {
+    return PubmedQuery::splitNames((string) ($collection['highlightAuthor'] ?? ''));
+  }
+
+  /**
+   * Authors that must survive the shortening of long author lists: the ones of the query and the highlighted ones.
+   *
+   * @param array<string, mixed> $collection
+   * @return string[]
+   */
+  public static function preferredAuthorNames(array $collection, string $query): array {
+    return array_values(array_unique(array_merge(PubmedQuery::extractAuthorNames($query), self::highlightNames($collection))));
   }
 
 }

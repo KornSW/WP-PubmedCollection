@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace KornSW\PubmedCollection\Admin;
 
 use KornSW\PubmedCollection\EutilsClient;
-use KornSW\PubmedCollection\PublicationService;
+use KornSW\PubmedCollection\AutoImporter;
 use KornSW\PubmedCollection\Settings;
 
 if (!defined('ABSPATH')) {
@@ -84,7 +84,7 @@ final class ConnectionDiagnostics {
     } else {
       $rows[] = $this->row('WP-Cron', self::STATUS_OK, 'aktiv (läuft bei Seitenaufrufen mit)');
     }
-    $rows[] = $this->row('Eingeplante Hintergrund-Abrufe', self::STATUS_INFO, $this->describeScheduledRefreshes());
+    $rows[] = $this->row('Nächster Auto-Import-Lauf', self::STATUS_INFO, $this->describeNextAutoImport());
 
     $rows[] = $this->row('Nur IPv4 erzwingen', self::STATUS_INFO, $this->yesNo($this->settings->getForceIpv4()));
     $rows[] = $this->row('NCBI-API-Key', self::STATUS_INFO, $this->yesNo($this->settings->hasApiKey()));
@@ -294,25 +294,12 @@ final class ConnectionDiagnostics {
     return $this->row($label, $status, 'HTTP ' . $statusCode . ', ' . $summary . $verboseExcerpt);
   }
 
-  private function describeScheduledRefreshes(): string {
-    $cronEvents = _get_cron_array();
-    $descriptions = [];
-    if (!is_array($cronEvents)) {
-      return 'keine';
+  private function describeNextAutoImport(): string {
+    $timestamp = wp_next_scheduled(AutoImporter::CRON_HOOK);
+    if ($timestamp === false) {
+      return 'nicht eingeplant';
     }
-    foreach ($cronEvents as $timestamp => $hooks) {
-      if (!isset($hooks[PublicationService::REFRESH_HOOK])) {
-        continue;
-      }
-      foreach ($hooks[PublicationService::REFRESH_HOOK] as $event) {
-        $collectionId = (string) ($event['args'][0] ?? '?');
-        $descriptions[] = $collectionId . ' (fällig ' . wp_date('d.m.Y H:i:s', (int) $timestamp) . ')';
-      }
-    }
-    if (count($descriptions) === 0) {
-      return 'keine';
-    }
-    return implode(', ', $descriptions);
+    return wp_date('d.m.Y H:i:s', (int) $timestamp) . ' (prüft zweimal täglich, welche Collections laut Intervall fällig sind)';
   }
 
   /**

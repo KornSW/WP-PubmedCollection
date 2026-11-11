@@ -19,27 +19,27 @@ final class Settings {
 
   private const CIPHER = 'aes-256-cbc';
 
-  public const DEFAULT_CACHE_HOURS = 8;
+  public const DEFAULT_AUTO_IMPORT_INTERVAL_DAYS = 3;
 
-  public const MAX_CACHE_HOURS = 720;
+  public const MAX_AUTO_IMPORT_INTERVAL_DAYS = 60;
 
   /**
-   * After this many hours a page view triggers a background refresh of the list.
+   * The auto import asks PubMed for new publications every this many days.
    */
-  public function getCacheHours(): int {
-    $cacheHours = $this->readSetting('cacheHours');
-    if ($cacheHours === '') {
-      return self::DEFAULT_CACHE_HOURS;
+  public function getAutoImportIntervalDays(): int {
+    $intervalDays = $this->readSetting('autoImportIntervalDays');
+    if ($intervalDays === '') {
+      return self::DEFAULT_AUTO_IMPORT_INTERVAL_DAYS;
     }
-    return $this->clampCacheHours((int) $cacheHours);
+    return $this->clampIntervalDays((int) $intervalDays);
   }
 
-  public function saveCacheHours(int $cacheHours): void {
-    $this->writeSetting('cacheHours', (string) $this->clampCacheHours($cacheHours));
+  public function saveAutoImportIntervalDays(int $intervalDays): void {
+    $this->writeSetting('autoImportIntervalDays', (string) $this->clampIntervalDays($intervalDays));
   }
 
-  private function clampCacheHours(int $cacheHours): int {
-    return max(1, min(self::MAX_CACHE_HOURS, $cacheHours));
+  private function clampIntervalDays(int $intervalDays): int {
+    return max(1, min(self::MAX_AUTO_IMPORT_INTERVAL_DAYS, $intervalDays));
   }
 
   /**
